@@ -50,6 +50,10 @@ struct App {
     processed_track: String,
     worker_rx: Option<mpsc::Receiver<String>>,
     status_msg: String,
+    searching: bool,
+    search_query: String,
+    search_matches: Vec<usize>,
+    search_idx: usize,
 }
 
 impl App {
@@ -83,12 +87,20 @@ impl App {
             processed_track: String::new(),
             worker_rx: None,
             status_msg: String::new(),
+            searching: false,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            search_idx: 0,
         }
     }
 
     fn refresh_dir(&mut self) {
         self.entries = list_dir(&self.current_dir, self.show_audio_only);
         self.browser_scroll = 0;
+        self.search_matches.clear();
+        self.search_query.clear();
+        self.search_idx = 0;
+        self.searching = false;
     }
 }
 
@@ -101,6 +113,29 @@ fn is_audio(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| AUDIO_EXTS.contains(&e))
         .unwrap_or(false)
+}
+
+fn compute_search_matches(entries: &[PathBuf], query: &str) -> Vec<usize> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let lower = query.to_lowercase();
+    entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| {
+            let name = e
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            if name.contains(&lower) {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn list_dir(dir: &Path, audio_only: bool) -> Vec<PathBuf> {
@@ -302,6 +337,9 @@ fn handle_event(app: &mut App, ev: Event) -> bool {
 // ─── Browser ──────────────────────────────────────────────────────────────────
 
 fn handle_browser(app: &mut App, key: KeyCode) -> bool {
+    if app.searching {
+        return handle_browser_search(app, key);
+    }
     match key {
         KeyCode::Char('q') | KeyCode::Esc => return true,
         KeyCode::Up | KeyCode::Char('k') => {
@@ -338,6 +376,60 @@ fn handle_browser(app: &mut App, key: KeyCode) -> bool {
             if let Some(audio) = app.entries.iter().find(|e| !e.is_dir() && is_audio(e)) {
                 app.processed_track = audio.to_string_lossy().to_string();
                 app.screen = Screen::Settings;
+            }
+        }
+        KeyCode::Char('/') => {
+            app.searching = true;
+            app.search_query.clear();
+            app.search_matches.clear();
+            app.search_idx = 0;
+        }
+        KeyCode::Char('n') => {
+            if !app.search_matches.is_empty() {
+                app.search_idx = (app.search_idx + 1) % app.search_matches.len();
+                app.browser_scroll = app.search_matches[app.search_idx];
+            }
+        }
+        KeyCode::Char('N') => {
+            if !app.search_matches.is_empty() {
+                app.search_idx = if app.search_idx == 0 {
+                    app.search_matches.len() - 1
+                } else {
+                    app.search_idx - 1
+                };
+                app.browser_scroll = app.search_matches[app.search_idx];
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
+fn handle_browser_search(app: &mut App, key: KeyCode) -> bool {
+    match key {
+        KeyCode::Esc => {
+            app.searching = false;
+            app.search_query.clear();
+            app.search_matches.clear();
+            app.search_idx = 0;
+        }
+        KeyCode::Enter => {
+            app.searching = false;
+        }
+        KeyCode::Backspace => {
+            app.search_query.pop();
+            app.search_matches = compute_search_matches(&app.entries, &app.search_query);
+            app.search_idx = 0;
+            if !app.search_matches.is_empty() {
+                app.browser_scroll = app.search_matches[0];
+            }
+        }
+        KeyCode::Char(c) => {
+            app.search_query.push(c);
+            app.search_matches = compute_search_matches(&app.entries, &app.search_query);
+            app.search_idx = 0;
+            if !app.search_matches.is_empty() {
+                app.browser_scroll = app.search_matches[0];
             }
         }
         _ => {}
@@ -510,20 +602,38 @@ fn render_browser(f: &mut Frame, app: &App) {
         ])
         .split(area);
 
-    let filter_indicator = if app.show_audio_only { "audio" } else { "all" };
-    let info = Line::from(vec![
-        Span::raw(" \u{1F4C1} "),
-        Span::styled(
-            app.current_dir.to_string_lossy().to_string(),
-            Style::default().fg(Color::Cyan),
-        ),
-        Span::raw(format!("  ({})  ", app.entries.len())),
-        Span::styled(
-            format!("[{}]", filter_indicator),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]);
-    f.render_widget(Paragraph::new(info), chunks[0]);
+    if app.searching {
+        let search_display = if app.search_matches.is_empty() {
+            format!(" /{}_  (no matches)", app.search_query)
+        } else {
+            format!(
+                " /{}_  ({}/{})",
+                app.search_query,
+                app.search_idx + 1,
+                app.search_matches.len()
+            )
+        };
+        let info = Line::from(vec![Span::styled(
+            search_display,
+            Style::default().fg(Color::Yellow),
+        )]);
+        f.render_widget(Paragraph::new(info), chunks[0]);
+    } else {
+        let filter_indicator = if app.show_audio_only { "audio" } else { "all" };
+        let info = Line::from(vec![
+            Span::raw(" \u{1F4C1} "),
+            Span::styled(
+                app.current_dir.to_string_lossy().to_string(),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::raw(format!("  ({})  ", app.entries.len())),
+            Span::styled(
+                format!("[{}]", filter_indicator),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+        f.render_widget(Paragraph::new(info), chunks[0]);
+    }
 
     let visible = (chunks[1].height as usize).saturating_sub(2);
     let start = app
@@ -536,6 +646,8 @@ fn render_browser(f: &mut Frame, app: &App) {
         .enumerate()
         .map(|(i, entry)| {
             let is_selected = i + start == app.browser_scroll;
+            let is_match =
+                !app.search_query.is_empty() && app.search_matches.contains(&(i + start));
             let name = entry
                 .file_name()
                 .unwrap_or_default()
@@ -548,6 +660,8 @@ fn render_browser(f: &mut Frame, app: &App) {
             };
             let style = if is_selected {
                 Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else if is_match {
+                Style::default().fg(Color::Yellow)
             } else if entry.is_dir() {
                 Style::default().fg(Color::Cyan)
             } else {
@@ -562,23 +676,55 @@ fn render_browser(f: &mut Frame, app: &App) {
         chunks[1],
     );
 
-    let help = Line::from(vec![
-        Span::styled(
-            " \u{2191}\u{2193}/jk ",
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::raw("navigate  "),
-        Span::styled("Enter", Style::default().fg(Color::DarkGray)),
-        Span::raw(" select  "),
-        Span::styled("h/\u{2190}", Style::default().fg(Color::DarkGray)),
-        Span::raw(" parent  "),
-        Span::styled(".", Style::default().fg(Color::DarkGray)),
-        Span::raw(" filter  "),
-        Span::styled("s", Style::default().fg(Color::DarkGray)),
-        Span::raw(" quick  "),
-        Span::styled("q/Esc", Style::default().fg(Color::DarkGray)),
-        Span::raw(" quit"),
-    ]);
+    let has_matches = !app.search_query.is_empty() && !app.search_matches.is_empty();
+    let help = if app.searching {
+        Line::from(vec![
+            Span::styled(" Esc ", Style::default().fg(Color::DarkGray)),
+            Span::raw("cancel  "),
+            Span::styled("Enter", Style::default().fg(Color::DarkGray)),
+            Span::raw(" confirm"),
+        ])
+    } else if has_matches {
+        Line::from(vec![
+            Span::styled(
+                " \u{2191}\u{2193}/jk ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::raw("navigate  "),
+            Span::styled("n/N", Style::default().fg(Color::DarkGray)),
+            Span::raw(" search  "),
+            Span::styled("Enter", Style::default().fg(Color::DarkGray)),
+            Span::raw(" select  "),
+            Span::styled("h/\u{2190}", Style::default().fg(Color::DarkGray)),
+            Span::raw(" parent  "),
+            Span::styled(".", Style::default().fg(Color::DarkGray)),
+            Span::raw(" filter  "),
+            Span::styled("s", Style::default().fg(Color::DarkGray)),
+            Span::raw(" quick  "),
+            Span::styled("q/Esc", Style::default().fg(Color::DarkGray)),
+            Span::raw(" quit"),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(
+                " \u{2191}\u{2193}/jk ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::raw("navigate  "),
+            Span::styled("/", Style::default().fg(Color::DarkGray)),
+            Span::raw(" search  "),
+            Span::styled("Enter", Style::default().fg(Color::DarkGray)),
+            Span::raw(" select  "),
+            Span::styled("h/\u{2190}", Style::default().fg(Color::DarkGray)),
+            Span::raw(" parent  "),
+            Span::styled(".", Style::default().fg(Color::DarkGray)),
+            Span::raw(" filter  "),
+            Span::styled("s", Style::default().fg(Color::DarkGray)),
+            Span::raw(" quick  "),
+            Span::styled("q/Esc", Style::default().fg(Color::DarkGray)),
+            Span::raw(" quit"),
+        ])
+    };
     f.render_widget(
         Paragraph::new(help).style(Style::default().fg(Color::DarkGray)),
         chunks[2],

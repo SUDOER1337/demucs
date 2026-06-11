@@ -1,0 +1,52 @@
+[
+  {
+    "label": "Lint Python",
+    "command": "make linter",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Test separation (eval)",
+    "command": "make test_eval",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Build TUI",
+    "command": "cargo build",
+    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
+  },
+  {
+    "label": "Run TUI",
+    "command": "./demucs-tui/run.sh",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Run TUI (build first)",
+    "command": "cargo build && ./demucs-tui/target/debug/demucs-tui",
+    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
+  },
+  {
+    "label": "Separate test.mp3 (HTDemucs)",
+    "command": "./demucs.sh test.mp3",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Format Python (yapf)",
+    "command": "yapf -ri demucs/ demucs-tui/worker/",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "List available models",
+    "command": "./venv/bin/python3 -m demucs --list-models",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Run Rust check (clippy)",
+    "command": "cargo clippy",
+    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
+  },
+  {
+    "label": "Install TUI",
+    "command": "cargo install --path .",
+    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
+  }
+]

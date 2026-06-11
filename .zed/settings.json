@@ -1,0 +1,29 @@
+// Zed editor settings for the Demucs monorepo.
+// Python settings match setup.cfg (flake8/yapf max-line-length = 100).
+// Rust settings follow cargo defaults.
+
+{
+  "languages": {
+    "Python": {
+      "format_on_save": "on",
+      "formatter": {
+        "external": {
+          "command": "yapf",
+          "arguments": ["--style", "{column_limit: 100}"]
+        }
+      },
+      // Project uses flake8 (CLI, not an LSP) + mypy. yapf for formatting.
+      "language_servers": ["pyright", "mypy"],
+      "tab_size": 4,
+      "max_line_length": 100
+    },
+    "Rust": {
+      "tab_size": 4,
+      "max_line_length": 100
+    }
+  },
+  "hard_tabs": false,
+  "ensure_final_newline_on_save": true,
+  "format_on_save": "on",
+  "show_whitespaces": "selection"
+}

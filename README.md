@@ -4,7 +4,6 @@
 ![tests badge](https://github.com/facebookresearch/demucs/workflows/tests/badge.svg)
 ![linter badge](https://github.com/facebookresearch/demucs/workflows/linter/badge.svg)
 
-
 **Important:** As I am no longer working at Meta, **this repository is not maintained anymore**.
 I've created a fork at [github.com/adefossez/demucs](https://github.com/adefossez/demucs). Note that this project is not actively maintained anymore
 and only important bug fixes will be processed on the new repo. Please do not open issues for feature request or if Demucs doesn't work perfectly for your use case :)
@@ -13,7 +12,6 @@ This is the 4th release of Demucs (v4), featuring Hybrid Transformer based sourc
 **For the classic Hybrid Demucs (v3):** [Go this commit][demucs_v3].
 If you are experiencing issues and want the old Demucs back, please file an issue, and then you can get back to Demucs v3 with
 `git checkout v3`. You can also go [Demucs v2][demucs_v2].
-
 
 Demucs is a state-of-the-art music source separation model, currently capable of separating
 drums, bass, and vocals from the rest of the accompaniment.
@@ -30,7 +28,6 @@ Checkout [our paper][htdemucs] for more information.
 It has been trained on the [MUSDB HQ][musdb] dataset + an extra training dataset of 800 songs.
 This model separates drums, bass and vocals and other stems for any song.
 
-
 As Hybrid Transformer Demucs is brand new, it is not activated by default, you can activate it in the usual
 commands described hereafter with `-n htdemucs_ft`.
 The single, non fine-tuned model is provided as `-n htdemucs`, and the retrained baseline
@@ -39,36 +36,32 @@ requires custom CUDA code that is not ready for release yet.
 We are also releasing an experimental 6 sources model, that adds a `guitar` and `piano` source.
 Quick testing seems to show okay quality for `guitar`, but a lot of bleeding and artifacts for the `piano` source.
 
-
 <p align="center">
 <img src="./demucs.png" alt="Schema representing the structure of Hybrid Transformer Demucs,
     with a dual U-Net structure, one branch for the temporal domain,
     and one branch for the spectral domain. There is a cross-domain Transformer between the Encoders and Decoders."
 width="800px"></p>
 
-
-
 ## Important news if you are already using Demucs
 
 See the [release notes](./docs/release.md) for more details.
 
 - 22/02/2023: added support for the [SDX 2023 Challenge](https://www.aicrowd.com/challenges/sound-demixing-challenge-2023),
-    see the dedicated [doc page](./docs/sdx23.md)
+  see the dedicated [doc page](./docs/sdx23.md)
 - 07/12/2022: Demucs v4 now on PyPI. **htdemucs** model now used by default. Also releasing
-    a 6 sources models (adding `guitar` and `piano`, although the latter doesn't work so well at the moment).
+  a 6 sources models (adding `guitar` and `piano`, although the latter doesn't work so well at the moment).
 - 16/11/2022: Added the new **Hybrid Transformer Demucs v4** models.
-	Adding support for the [torchaudio implementation of HDemucs](https://pytorch.org/audio/stable/tutorials/hybrid_demucs_tutorial.html).
+  Adding support for the [torchaudio implementation of HDemucs](https://pytorch.org/audio/stable/tutorials/hybrid_demucs_tutorial.html).
 - 30/08/2022: added reproducibility and ablation grids, along with an updated version of the paper.
 - 17/08/2022: Releasing v3.0.5: Set split segment length to reduce memory. Compatible with pyTorch 1.12.
 - 24/02/2022: Releasing v3.0.4: split into two stems (i.e. karaoke mode).
-    Export as float32 or int24.
-- 17/12/2021: Releasing v3.0.3: bug fixes  (thanks @keunwoochoi), memory drastically
-    reduced on GPU (thanks @famzah) and new multi-core evaluation on CPU (`-j` flag).
+  Export as float32 or int24.
+- 17/12/2021: Releasing v3.0.3: bug fixes (thanks @keunwoochoi), memory drastically
+  reduced on GPU (thanks @famzah) and new multi-core evaluation on CPU (`-j` flag).
 - 12/11/2021: Releasing **Demucs v3** with hybrid domain separation. Strong improvements
-	on all sources. This is the model that won Sony MDX challenge.
+  on all sources. This is the model that won Sony MDX challenge.
 - 11/05/2021: Adding support for MusDB-HQ and arbitrary wav set, for the MDX challenge. For more information
-on joining the challenge with Demucs see [the Demucs MDX instructions](docs/mdx.md)
-
+  on joining the challenge with Demucs see [the Demucs MDX instructions](docs/mdx.md)
 
 ## Comparison with other models
 
@@ -84,7 +77,7 @@ is a rating from 1 to 5 with 5 being zero contamination by other sources. We ref
 for more details.
 
 | Model                        | Domain      | Extra data?       | Overall SDR | MOS Quality | MOS Contamination |
-|------------------------------|-------------|-------------------|-------------|-------------|-------------------|
+| ---------------------------- | ----------- | ----------------- | ----------- | ----------- | ----------------- |
 | [Wave-U-Net][waveunet]       | waveform    | no                | 3.2         | -           | -                 |
 | [Open-Unmix][openunmix]      | spectrogram | no                | 5.3         | -           | -                 |
 | [D3Net][d3net]               | spectrogram | no                | 6.0         | -           | -                 |
@@ -99,8 +92,6 @@ for more details.
 | [Spleeter][spleeter]         | spectrogram | 25k songs         | 5.9         | -           | -                 |
 | [Band-Spit RNN][bandsplit]   | spectrogram | 1.7k (mixes only) | **9.0**     | -           | -                 |
 | **HT Demucs f.t. (v4)**      | hybrid      | 800 songs         | **9.0**     | -           | -                 |
-
-
 
 ## Requirements
 
@@ -121,11 +112,13 @@ python3 -m pip install -U demucs
 ```
 
 For bleeding edge versions, you can install directly from this repo using
+
 ```bash
 python3 -m pip install -U git+https://github.com/facebookresearch/demucs#egg=demucs
 ```
 
 Advanced OS support are provided on the following page, **you must read the page for your OS before posting an issues**:
+
 - **If you are using Windows:** [Windows support](docs/windows.md).
 - **If you are using macOS:** [macOS support](docs/mac.md).
 - **If you are using Linux:** [Linux support](docs/linux.md).
@@ -147,11 +140,9 @@ You will also need to install [soundstretch/soundtouch](https://www.surina.net/s
 and on Ubuntu `sudo apt-get install soundstretch`. This is used for the
 pitch/tempo augmentation.
 
-
 ### Running in Docker
 
 Thanks to @xserrat, there is now a Docker image definition ready for using Demucs. This can ensure all libraries are correctly installed without interfering with the host OS. See his repo [Docker Facebook Demucs](https://github.com/xserrat/docker-facebook-demucs) for more information.
-
 
 ### Running from Colab
 
@@ -179,7 +170,6 @@ Audiostrip is providing free online separation with Demucs on their website [htt
 
 [Neutone](https://neutone.space/) provides a realtime Demucs model in their free VST/AU plugin that can be used in your favorite DAW.
 
-
 ## Separating tracks
 
 In order to try Demucs, you can just run from any folder (as long as you properly installed it)
@@ -196,7 +186,6 @@ demucs -n mdx_q myfile.mp3
 # If you only want to separate vocals out of an audio, use `--two-stems=vocals` (You can also set to drums or bass)
 demucs --two-stems=vocals myfile.mp3
 ```
-
 
 If you have a GPU, but you run out of memory, please use `--segment SEGMENT` to reduce length of each split. `SEGMENT` should be changed to a integer describing the length of each segment in seconds.
 A segment length of at least 10 is recommended (the bigger the number is, the more memory is required, but quality may increase). Note that the Hybrid Transformer models only support a maximum segment length of 7.8 seconds.
@@ -216,32 +205,31 @@ Demucs will automatically rescale each output stem so as to avoid clipping. This
 the relative volume between stems. If instead you prefer hard clipping, pass `--clip-mode clamp`.
 You can also try to reduce the volume of the input mixture before feeding it to Demucs.
 
-
 Other pre-trained models can be selected with the `-n` flag.
 The list of pre-trained models is:
+
 - `htdemucs`: first version of Hybrid Transformer Demucs. Trained on MusDB + 800 songs. Default model.
 - `htdemucs_ft`: fine-tuned version of `htdemucs`, separation will take 4 times more time
-    but might be a bit better. Same training set as `htdemucs`.
+  but might be a bit better. Same training set as `htdemucs`.
 - `htdemucs_6s`: 6 sources version of `htdemucs`, with `piano` and `guitar` being added as sources.
-    Note that the `piano` source is not working great at the moment.
+  Note that the `piano` source is not working great at the moment.
 - `hdemucs_mmi`: Hybrid Demucs v3, retrained on MusDB + 800 songs.
 - `mdx`: trained only on MusDB HQ, winning model on track A at the [MDX][mdx] challenge.
 - `mdx_extra`: trained with extra training data (**including MusDB test set**), ranked 2nd on the track B
-    of the [MDX][mdx] challenge.
+  of the [MDX][mdx] challenge.
 - `mdx_q`, `mdx_extra_q`: quantized version of the previous models. Smaller download and storage
-    but quality can be slightly worse.
+  but quality can be slightly worse.
 - `SIG`: where `SIG` is a single model from the [model zoo](docs/training.md#model-zoo).
 
 The `--two-stems=vocals` option allows separating vocals from the rest of the accompaniment (i.e., karaoke mode).
 `vocals` can be changed to any source in the selected model.
 This will mix the files after separating the mix fully, so this won't be faster or use less memory.
 
-The `--shifts=SHIFTS` performs multiple predictions with random shifts (a.k.a the *shift trick*) of the input and average them. This makes prediction `SHIFTS` times
+The `--shifts=SHIFTS` performs multiple predictions with random shifts (a.k.a the _shift trick_) of the input and average them. This makes prediction `SHIFTS` times
 slower. Don't use it unless you have a GPU.
 
 The `--overlap` option controls the amount of overlap between prediction windows. Default is 0.25 (i.e. 25%) which is probably fine.
 It can probably be reduced to 0.1 to improve a bit speed.
-
 
 The `-j` flag allow to specify a number of parallel jobs (e.g. `demucs -j 2 myfile.mp3`).
 This will multiply by the same amount the RAM used so be careful!
@@ -254,7 +242,8 @@ If you do not have enough memory on your GPU, simply add `-d cpu` to the command
 
 ## Calling from another Python program
 
-The main function provides an `opt` parameter as a simple API. You can just pass the parsed command line as this parameter: 
+The main function provides an `opt` parameter as a simple API. You can just pass the parsed command line as this parameter:
+
 ```python
 # Assume that your command is `demucs --mp3 --two-stems vocals -n mdx_extra "track with space.mp3"`
 # The following codes are same as the command above:
@@ -277,8 +266,6 @@ If you want to train (Hybrid) Demucs, please follow the [training doc](docs/trai
 
 In order to reproduce the results from the Track A and Track B submissions, checkout the [MDX Hybrid Demucs submission repo][mdx_submission].
 
-
-
 ## How to cite
 
 ```
@@ -300,6 +287,140 @@ In order to reproduce the results from the Track A and Track B submissions, chec
 ## License
 
 Demucs is released under the MIT license as found in the [LICENSE](LICENSE) file.
+
+---
+
+## Local Setup & Tuning Guide (Nullfjord's System)
+
+### System Specs
+
+| Component | Detail |
+|---|---|
+| **OS** | CachyOS x86_64 (Kernel 7.0.11-1-cachyos) |
+| **CPU** | AMD Ryzen 5 5600 (6-core/12-thread) |
+| **GPU** | AMD Radeon RX 6600 (8 GB VRAM) via ROCm |
+| **RAM** | 32 GB (31.26 GiB) DDR4 |
+| **Storage** | 547 GB NVMe (98% full — clean up!) |
+
+### GPU Memory Budget
+
+The RX 6600 has **8 GB VRAM**. After OS/resident allocations, ~7 GB is available for Demucs.
+
+| Model | Est. VRAM | Fits? | Notes |
+|---|---|---|---|
+| `htdemucs` | ~5.2 GB | ✅ Yes | Best speed/quality balance — **daily driver** |
+| `htdemucs_6s` | ~6.5 GB | ✅ Yes | Only if you need guitar/piano stems |
+| `htdemucs_ft` | ~7.8 GB | ⚠️ Tight | Needs `--segment 6.0` or `--shifts 0` to fit |
+| `mdx_extra_q` | ~3.0 GB | ✅ Yes | Low-VRAM fallback, slightly lower quality |
+
+**Recommended default: `htdemucs`** — it fits comfortably with headroom, runs fast, and delivers 95% of the FT quality.
+
+### Recommended Commands
+
+```bash
+# === Everyday separation (best quality/speed balance) ===
+./demucs.sh song.mp3
+
+# === Maximum quality (uses htdemucs_ft, may need segment tweak) ===
+./demucs.sh -n htdemucs_ft --segment 6.0 song.mp3
+
+# === Single-stem karaoke (vocals only) ===
+./demucs.sh --two-stems vocals song.mp3
+
+# === Batch process all mp3s in a directory (parallel jobs) ===
+./demucs.sh -j 4 *.mp3
+
+# === CPU fallback (if GPU OOM or for reproducibility) ===
+./demucs.sh -d cpu --segment 8 song.mp3
+
+# === Export as MP3 with best quality ===
+./demucs.sh --mp3 --mp3-bitrate 320 --mp3-preset 2 song.mp3
+
+# === Low-memory mode (if VRAM runs out despite htdemucs) ===
+./demucs.sh --segment 5.0 song.mp3
+```
+
+### Shift Trick (Quality Boost)
+
+The `--shifts` flag runs inference multiple times with random input shifts and averages results. This **improves SDR by ~0.2–0.3 dB** but costs `N×` slower.
+
+```bash
+# Mild boost (2x slower, barely noticeable difference)
+./demucs.sh --shifts 2 song.mp3
+
+# Noticeable boost (5x slower — only worth it on GPU)
+./demucs.sh --shifts 5 song.mp3
+```
+
+On RX 6600 with `htdemucs`: `--shifts 2` is a reasonable trade-off for critical tracks.
+
+### Overlap Tuning
+
+Default overlap is 25% (`--overlap 0.25`). You can squeeze out a small speed gain with minimal quality loss:
+
+```bash
+# Slightly faster, nearly identical quality
+./demucs.sh --overlap 0.1 song.mp3
+```
+
+### Batch Script (`demucs-batch.sh`)
+
+For bulk processing, script automatically finds audio files and separates them:
+
+```bash
+# Find and separate all audio in current directory
+./demucs-batch.sh
+
+# Recursive find mode
+./demucs-batch.sh --find
+```
+
+### Model Comparison Chart
+
+| Model | Stems | Speed (3 min track) | Quality | When to use |
+|---|---|---|---|---|
+| `htdemucs` | 4 | ~20–30s | ★★★★☆ | **Default. Most of the time.** |
+| `htdemucs_ft` | 4 | ~80–120s | ★★★★★ | Critical tracks where you want every dB |
+| `htdemucs_6s` | 6 | ~30–40s | ★★★☆☆ | Need separate guitar/piano (piano is noisy) |
+| `mdx` | 4 | ~20–30s | ★★★☆☆ | Baseline comparison, smaller download |
+| `mdx_extra_q` | 4 | ~20–30s | ★★★☆☆ | Low-VRAM fallback |
+| `hdemucs_mmi` | 4 | ~25–35s | ★★★★☆ | v3 retrained — similar to htdemucs |
+
+### Memory Tuning Cheatsheet
+
+If you hit **CUDA out of memory** (ROCm equivalent):
+
+1. Reduce segment: `--segment 5.0` (minimum recommended: 4.0)
+2. Try the quantized model: `-n mdx_extra_q`
+3. Fully unpack model before inference (env var):
+   ```bash
+   PYTORCH_NO_CUDA_MEMORY_CACHING=1 ./demucs.sh song.mp3
+   ```
+4. Fall back to CPU: `./demucs.sh -d cpu song.mp3`
+
+### Why Not TensorRT?
+
+TensorRT is NVIDIA-only. The RX 6600 uses ROCm (AMD's GPU compute stack). PyTorch on ROCm is well-optimized and is the native path for this system. No ONNX/TensorRT pipeline is available or needed.
+
+---
+
+### Quick Reference (Common Flags)
+
+| Flag | Purpose |
+|---|---|
+| `-n MODEL` | Select model (default: `htdemucs`) |
+| `--two-stems SRC` | Karaoke mode (e.g. `vocals`, `drums`, `bass`) |
+| `--segment N` | Segment length in seconds (lower = less VRAM) |
+| `--overlap N` | Overlap ratio (0.0–1.0, default 0.25) |
+| `--shifts N` | Shift trick repeats (N=1 disables) |
+| `-j N` | Parallel jobs (multiply RAM usage!) |
+| `--mp3` | Output as MP3 instead of WAV |
+| `--mp3-bitrate N` | MP3 bitrate in kbps (default 320) |
+| `--mp3-preset N` | MP3 encoder preset (2=best, 7=fastest) |
+| `--float32` | Output float32 WAV (default int16) |
+| `--int24` | Output 24-bit integer WAV |
+| `-d cpu` | Force CPU inference |
+| `-o DIR` | Output directory (default: `separated/`) |
 
 [hybrid_paper]: https://arxiv.org/abs/2111.03600
 [waveunet]: https://github.com/f90/Wave-U-Net
