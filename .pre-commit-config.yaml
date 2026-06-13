@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: yapf
+        name: yapf
+        entry: ./venv/bin/yapf -i
+        language: system
+        types: [python]
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --manifest-path demucs-tui/Cargo.toml -- --check
+        language: system
+        pass_filenames: false
+        files: ^demucs-tui/.*\.rs$

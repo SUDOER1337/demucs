@@ -213,7 +213,7 @@ def apply_model(model: tp.Union[BagOfModels, Model],
             original_model_device = next(iter(sub_model.parameters())).device
             sub_model.to(device)
 
-            res = apply_model(sub_model, mix, **kwargs, callback_arg=callback_arg)
+            res = apply_model(tp.cast(Model, sub_model), mix, **kwargs, callback_arg=callback_arg)
             out = res
             sub_model.to(original_model_device)
             for k, inst_weight in enumerate(model_weights):

@@ -77,7 +77,6 @@ def EMA(beta: float = 1):
     total: tp.Dict[str, float] = defaultdict(float)
 
     def _update(metrics: dict, weight: float = 1) -> dict:
-        nonlocal total, fix
         for key, value in metrics.items():
             total[key] = total[key] * beta + weight * float(value)
             fix[key] = fix[key] * beta + weight

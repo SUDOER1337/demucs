@@ -12,7 +12,6 @@ import julius
 import numpy as np
 import soundfile as sf
 import torch
-import torchaudio as ta
 import typing as tp
 
 from .utils import temp_filenames

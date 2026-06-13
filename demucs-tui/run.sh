@@ -1,5 +1,9 @@
 #!/bin/bash
-# Build & run demucs-tui from the repo root
+# Build and run demucs-tui from the repo root.
+set -euo pipefail
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
+
+cargo build --manifest-path demucs-tui/Cargo.toml
 exec ./demucs-tui/target/debug/demucs-tui

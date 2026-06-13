@@ -21,8 +21,9 @@ if [ ! -f "$VENV_PYTHON" ]; then
 fi
 
 # Silence AMD ROCm/MIOpen workspace tuning warnings (they're harmless)
-export MIOPEN_LOG_LEVEL=0  # quiet mode
-export HSA_OVERRIDE_GFX_VERSION=10.3.0
-export TF_CPP_MIN_LOG_LEVEL=3
+export HSA_OVERRIDE_GFX_VERSION="${HSA_OVERRIDE_GFX_VERSION:-10.3.0}"
+export MIOPEN_LOG_LEVEL="${MIOPEN_LOG_LEVEL:-0}"
+export MIOPEN_ENABLE_LOGGING="${MIOPEN_ENABLE_LOGGING:-0}"
+export TF_CPP_MIN_LOG_LEVEL="${TF_CPP_MIN_LOG_LEVEL:-3}"
 
 exec "$VENV_PYTHON" -m demucs "$@"

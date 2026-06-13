@@ -99,7 +99,10 @@ def create_sin_embedding_cape(
         log_lambdas = np.random.uniform(
             -np.log(max_scale), +np.log(max_scale), size=[1, batch_size, 1]
         )
-        pos = (pos + delta + delta_local) * np.exp(log_lambdas)
+        delta_t = torch.as_tensor(delta, dtype=pos.dtype)
+        delta_local_t = torch.as_tensor(delta_local, dtype=pos.dtype)
+        log_lambdas_t = torch.as_tensor(log_lambdas, dtype=pos.dtype)
+        pos = (pos + delta_t + delta_local_t) * torch.exp(log_lambdas_t)
 
     pos = pos.to(device)
 

@@ -390,15 +390,13 @@ fn handle_browser(app: &mut App, key: KeyCode) -> bool {
                 app.browser_scroll = app.search_matches[app.search_idx];
             }
         }
-        KeyCode::Char('N') => {
-            if !app.search_matches.is_empty() {
-                app.search_idx = if app.search_idx == 0 {
-                    app.search_matches.len() - 1
-                } else {
-                    app.search_idx - 1
-                };
-                app.browser_scroll = app.search_matches[app.search_idx];
-            }
+        KeyCode::Char('N') if !app.search_matches.is_empty() => {
+            app.search_idx = if app.search_idx == 0 {
+                app.search_matches.len() - 1
+            } else {
+                app.search_idx - 1
+            };
+            app.browser_scroll = app.search_matches[app.search_idx];
         }
         _ => {}
     }
@@ -984,7 +982,7 @@ fn render_results(f: &mut Frame, app: &App) {
     );
 }
 
-fn block_frame<'a>(f: &mut Frame, title: &str, _extra: Option<&'a str>) -> Rect {
+fn block_frame(f: &mut Frame, title: &str, _extra: Option<&str>) -> Rect {
     let block = Block::default()
         .title(title)
         .title_alignment(Alignment::Center)

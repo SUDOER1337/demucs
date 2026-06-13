@@ -1,0 +1,12 @@
+# Optional direnv setup for local development.
+# To use:
+#   cp .envrc.example .envrc
+#   direnv allow
+
+export HSA_OVERRIDE_GFX_VERSION=10.3.0
+export MIOPEN_LOG_LEVEL=0
+export MIOPEN_ENABLE_LOGGING=0
+
+if [ -d "$PWD/venv/bin" ]; then
+  export PATH="$PWD/venv/bin:$PATH"
+fi

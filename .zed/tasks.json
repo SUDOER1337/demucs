@@ -1,7 +1,42 @@
 [
   {
+    "label": "Install project",
+    "command": "make install",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Install project (skip quick test)",
+    "command": "make install-no-test",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Install Python env + dev deps",
+    "command": "make install-python",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Install ROCm torchaudio",
+    "command": "make install-rocm-torchaudio",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Install TUI binary (cargo)",
+    "command": "make tui-install",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
     "label": "Lint Python",
     "command": "make linter",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Smoke test",
+    "command": "make smoke",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Test separation (single)",
+    "command": "make test_eval_one",
     "cwd": "$ZED_WORKTREE_ROOT"
   },
   {
@@ -11,42 +46,37 @@
   },
   {
     "label": "Build TUI",
-    "command": "cargo build",
-    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
+    "command": "make tui-build",
+    "cwd": "$ZED_WORKTREE_ROOT"
   },
   {
     "label": "Run TUI",
-    "command": "./demucs-tui/run.sh",
+    "command": "make tui-run",
     "cwd": "$ZED_WORKTREE_ROOT"
   },
   {
-    "label": "Run TUI (build first)",
-    "command": "cargo build && ./demucs-tui/target/debug/demucs-tui",
-    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
-  },
-  {
-    "label": "Separate test.mp3 (HTDemucs)",
-    "command": "./demucs.sh test.mp3",
+    "label": "Format Python",
+    "command": "make format-python",
     "cwd": "$ZED_WORKTREE_ROOT"
   },
   {
-    "label": "Format Python (yapf)",
-    "command": "yapf -ri demucs/ demucs-tui/worker/",
+    "label": "Format Rust TUI",
+    "command": "make format-rust",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Check Rust TUI",
+    "command": "make rust-check",
     "cwd": "$ZED_WORKTREE_ROOT"
   },
   {
     "label": "List available models",
-    "command": "./venv/bin/python3 -m demucs --list-models",
+    "command": "make list-models",
     "cwd": "$ZED_WORKTREE_ROOT"
   },
   {
-    "label": "Run Rust check (clippy)",
-    "command": "cargo clippy",
-    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
-  },
-  {
-    "label": "Install TUI",
-    "command": "cargo install --path .",
-    "cwd": "$ZED_WORKTREE_ROOT/demucs-tui"
+    "label": "Clean generated artifacts",
+    "command": "make clean",
+    "cwd": "$ZED_WORKTREE_ROOT"
   }
 ]
