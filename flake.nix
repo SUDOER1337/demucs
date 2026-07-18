@@ -136,6 +136,9 @@
           };
         };
 
+        # ─── Python env with demucs (for TUI worker) ────────────────────────────
+        demucs-python = python.withPackages (ps: [demucs]);
+
         # ─── Demucs TUI ──────────────────────────────────────────────────────
         demucs-tui = pkgs.rustPlatform.buildRustPackage {
           pname = "demucs-tui";
@@ -146,9 +149,13 @@
           buildInputs = [pkgs.openssl pkgs.fontconfig];
 
           postInstall = ''
+            mkdir -p $out/share/demucs-tui
+            cp ${./demucs-tui/worker/demucs_worker.py} $out/share/demucs-tui/demucs_worker.py
+
             mv $out/bin/demucs-tui $out/bin/demucs-tui-unwrapped
             makeWrapper $out/bin/demucs-tui-unwrapped $out/bin/demucs-tui \
-              --set DEMUCS_PYTHON "${python}/bin/python3"
+              --set DEMUCS_PYTHON "${demucs-python}/bin/python3" \
+              --set DEMUCS_WORKER_PATH "$out/share/demucs-tui/demucs_worker.py"
           '';
 
           meta = with pkgs.lib; {
@@ -166,7 +173,8 @@
           nativeBuildInputs = [pkgs.makeWrapper];
           postBuild = ''
             wrapProgram $out/bin/demucs-tui-unwrapped \
-              --set DEMUCS_PYTHON "${python}/bin/python3"
+              --set DEMUCS_PYTHON "${demucs-python}/bin/python3" \
+              --set DEMUCS_WORKER_PATH "${demucs-tui}/share/demucs-tui/demucs_worker.py"
           '';
           meta.mainProgram = "demucs";
         };
