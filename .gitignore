@@ -16,4 +16,6 @@ Session.vim
 /mdx
 .mypy_cache
 .envrc
+venv/
+result
 demucs-tui/target/

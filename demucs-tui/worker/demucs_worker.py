@@ -9,18 +9,60 @@ import sys
 from pathlib import Path
 
 
+LOG_FILE = "/tmp/demucs-worker.log"
+_log_handle = None
+
+
+def _get_log_handle():
+    global _log_handle
+    if _log_handle is None or _log_handle.closed:
+        _log_handle = open(LOG_FILE, "a")
+    return _log_handle
+
+
+def _worker_log(msg: str) -> None:
+    import datetime
+
+    ts = datetime.datetime.now().isoformat(timespec="milliseconds")
+    f = _get_log_handle()
+    f.write(f"[{ts}] {msg}\n")
+    f.flush()
+
+
 def main():
+    _worker_log("=== worker start ===")
+    _worker_log(f"argv={sys.argv}")
+    _worker_log(f"pid={os.getpid()}")
+    _worker_log(f"cwd={os.getcwd()}")
+    _worker_log(
+        f"HSA_OVERRIDE_GFX_VERSION={os.environ.get('HSA_OVERRIDE_GFX_VERSION', 'NOT SET')}"
+    )
+    _worker_log(
+        f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}"
+    )
+    _worker_log(
+        f"ROCR_VISIBLE_DEVICES={os.environ.get('ROCR_VISIBLE_DEVICES', 'NOT SET')}"
+    )
+
     if len(sys.argv) < 2:
+        _worker_log("ERROR: Missing config path")
         print(json.dumps({"type": "error", "msg": "Missing config path"}))
         sys.exit(1)
 
-    with open(sys.argv[1]) as f:
+    config_path = sys.argv[1]
+    _worker_log(f"config_path={config_path}")
+
+    with open(config_path) as f:
         cfg = json.load(f)
+    _worker_log(f"config={json.dumps(cfg, default=str)}")
 
     # Set ROCm env
     os.environ.setdefault("HSA_OVERRIDE_GFX_VERSION", "10.3.0")
     os.environ.setdefault("MIOPEN_LOG_LEVEL", "0")
     os.environ["MIOPEN_ENABLE_LOGGING"] = "0"
+    _worker_log(
+        f"ROCm env after setdefault: HSA_OVERRIDE_GFX_VERSION={os.environ['HSA_OVERRIDE_GFX_VERSION']}"
+    )
 
     track = cfg["track"]
     model_name = cfg.get("model", "htdemucs")
@@ -38,8 +80,24 @@ def main():
     bits = cfg.get("bits_per_sample", 16)
     as_float = cfg.get("as_float", False)
 
-    from demucs.api import Separator, save_audio
-    from demucs.pretrained import ModelLoadingError
+    _worker_log(
+        f"params: model={model_name} device={device} shifts={shifts} overlap={overlap} "
+        f"segment={segment} split={split} two_stems={two_stems} output_dir={output_dir} "
+        f"format={out_format} jobs={jobs} clip_mode={clip_mode} bits={bits} float={as_float}"
+    )
+
+    try:
+        _worker_log("importing demucs.api...")
+        from demucs.api import Separator
+        from demucs.pretrained import ModelLoadingError
+
+        _worker_log("imported demucs.api successfully")
+    except Exception as e:
+        _worker_log(f"FAILED to import demucs.api: {e}")
+        import traceback
+
+        _worker_log(traceback.format_exc())
+        raise
 
     _send(
         {
@@ -54,6 +112,7 @@ def main():
     )
 
     try:
+        _worker_log("creating Separator instance...")
         separator = Separator(
             model=model_name,
             device=device,
@@ -65,10 +124,19 @@ def main():
             progress=False,
             callback=lambda d: _progress_cb(d),
         )
+        _worker_log(f"Separator created, samplerate={separator.samplerate}")
     except ModelLoadingError as e:
+        _worker_log(f"Model loading failed: {e}")
+        import traceback
+
+        _worker_log(traceback.format_exc())
         _send({"type": "error", "msg": f"Model loading failed: {e}"})
         sys.exit(1)
     except Exception as e:
+        _worker_log(f"Error creating Separator: {e}")
+        import traceback
+
+        _worker_log(traceback.format_exc())
         _send({"type": "error", "msg": f"Error: {e}"})
         sys.exit(1)
 
@@ -76,8 +144,16 @@ def main():
     _send(progress)
 
     try:
+        _worker_log(f"calling separate_audio_file(track={track})...")
         origin, sources = separator.separate_audio_file(Path(track))
+        _worker_log(
+            f"separation done, sources={list(sources.keys())} | origin shape={origin.shape}"
+        )
     except Exception as e:
+        _worker_log(f"Separation failed: {e}")
+        import traceback
+
+        _worker_log(traceback.format_exc())
         _send({"type": "error", "msg": f"Separation failed: {e}"})
         sys.exit(1)
 
@@ -86,59 +162,35 @@ def main():
     track_name = Path(track).stem
     out_dir = out_root / track_name
     out_dir.mkdir(parents=True, exist_ok=True)
+    _worker_log(f"output dir created: {out_dir}")
 
-    ext = out_format
-    saved = []
-    stems_to_save = list(sources.items())
+    try:
+        from demucs.api import save_separated_stems
 
-    if two_stems:
-        # Only save the requested stem and "no_{stem}"
-        if two_stems not in sources:
-            _send({"type": "error", "msg": f"Stem '{two_stems}' not in model"})
-            sys.exit(1)
-        # Save selected stem
-        stem_name = two_stems
-        stem_path = out_dir / f"{stem_name}.{ext}"
-        save_audio(
-            sources[stem_name],
-            str(stem_path),
+        saved = save_separated_stems(
+            sources=sources,
+            output_dir=out_dir,
+            track_name="",
             samplerate=separator.samplerate,
+            ext=out_format,
+            two_stems=two_stems,
+            two_stems_method="add",
+            bitrate=320,
             clip=clip_mode,
-            bits_per_sample=bits,
             as_float=as_float,
-        )
-        saved.append(str(stem_path))
-
-        # Build "no_{stem}" from all other sources
-        import torch
-
-        other = torch.zeros_like(next(iter(sources.values())))
-        for name, source in sources.items():
-            if name != two_stems:
-                other += source
-        other_path = out_dir / f"no_{two_stems}.{ext}"
-        save_audio(
-            other,
-            str(other_path),
-            samplerate=separator.samplerate,
-            clip=clip_mode,
             bits_per_sample=bits,
-            as_float=as_float,
+            filename_template="{stem}.{ext}",
         )
-        saved.append(str(other_path))
-    else:
-        for stem_name, source in stems_to_save:
-            stem_path = out_dir / f"{stem_name}.{ext}"
-            save_audio(
-                source,
-                str(stem_path),
-                samplerate=separator.samplerate,
-                clip=clip_mode,
-                bits_per_sample=bits,
-                as_float=as_float,
-            )
-            saved.append(str(stem_path))
+        _worker_log(f"saved {len(saved)} files: {saved}")
+    except Exception as e:
+        _worker_log(f"Failed to save stems: {e}")
+        import traceback
 
+        _worker_log(traceback.format_exc())
+        _send({"type": "error", "msg": f"Failed to save stems: {e}"})
+        sys.exit(1)
+
+    _worker_log("sending done message")
     _send(
         {
             "type": "done",
@@ -148,6 +200,7 @@ def main():
             "track": track,
         }
     )
+    _worker_log("=== worker done (clean exit) ===")
 
 
 def _progress_cb(data):
@@ -164,6 +217,11 @@ def _progress_cb(data):
         pct = min(segment_offset / audio_length, 1.0)
     else:
         pct = 0.0
+
+    _worker_log(
+        f"progress: pct={pct:.3f} model={model_idx}/{total_models} shift={shift_idx}/{total_shifts} "
+        f"seg={segment_offset}/{audio_length} state={state}"
+    )
 
     _send(
         {
@@ -186,4 +244,17 @@ def _send(data):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        _worker_log(f"Unhandled exception in main: {e}")
+        import traceback
+
+        _worker_log(traceback.format_exc())
+        # Last resort: try to send error via stdout
+        try:
+            print(json.dumps({"type": "error", "msg": f"Worker crashed: {e}"}))
+            sys.stdout.flush()
+        except Exception:
+            pass
+        sys.exit(1)

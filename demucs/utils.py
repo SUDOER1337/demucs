@@ -30,7 +30,7 @@ def unfold(a, kernel_size, stride):
     tgt_length = (n_frames - 1) * stride + kernel_size
     a = F.pad(a, (0, tgt_length - length))
     strides = list(a.stride())
-    assert strides[-1] == 1, 'data should be contiguous'
+    assert strides[-1] == 1, "data should be contiguous"
     strides = strides[:-1] + [stride, 1]
     return a.as_strided([*shape, n_frames, kernel_size], strides)
 
@@ -48,13 +48,22 @@ def center_trim(tensor: torch.Tensor, reference: tp.Union[torch.Tensor, int]):
         ref_size = reference
     delta = tensor.size(-1) - ref_size
     if delta < 0:
-        raise ValueError("tensor must be larger than reference. " f"Delta is {delta}.")
+        raise ValueError(f"tensor must be larger than reference. Delta is {delta}.")
     if delta:
-        tensor = tensor[..., delta // 2:-(delta - delta // 2)]
+        tensor = tensor[..., delta // 2 : -(delta - delta // 2)]
     return tensor
 
 
 def pull_metric(history: tp.List[dict], name: str):
+    """Extract a nested metric from a list of epoch history dicts.
+
+    Args:
+        history: List of metric dicts, one per epoch.
+        name: Dot-separated key path (e.g. 'valid.main.loss').
+
+    Returns:
+        List of metric values, one per epoch.
+    """
     out = []
     for metrics in history:
         metric = metrics
@@ -81,19 +90,20 @@ def EMA(beta: float = 1):
             total[key] = total[key] * beta + weight * float(value)
             fix[key] = fix[key] * beta + weight
         return {key: tot / fix[key] for key, tot in total.items()}
+
     return _update
 
 
-def sizeof_fmt(num: float, suffix: str = 'B'):
+def sizeof_fmt(num: float, suffix: str = "B"):
     """
     Given `num` bytes, return human readable size.
     Taken from https://stackoverflow.com/a/1094933
     """
-    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
         if abs(num) < 1024.0:
             return "%3.1f%s%s" % (num, unit, suffix)
         num /= 1024.0
-    return "%.1f%s%s" % (num, 'Yi', suffix)
+    return "%.1f%s%s" % (num, "Yi", suffix)
 
 
 @contextmanager
@@ -119,6 +129,12 @@ def random_subset(dataset, max_samples: int, seed: int = 42):
 
 
 class DummyPoolExecutor:
+    """Synchronous fallback for ThreadPoolExecutor.
+
+    Executes tasks in the calling thread instead of in a separate thread.
+    Used when num_workers=0 or when the device is not CPU.
+    """
+
     class DummyResult:
         def __init__(self, func, _dict, *args, **kwargs):
             self.func = func

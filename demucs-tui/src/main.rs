@@ -1,8 +1,9 @@
-use std::io::{self, BufRead, BufReader};
+use std::fs::OpenOptions;
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -17,6 +18,27 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Gauge, List, ListItem, Paragraph};
 use ratatui::Frame;
 use ratatui::Terminal;
+
+// ─── Logging ─────────────────────────────────────────────────────────────────
+
+/// Log a message to /tmp/demucs-tui.log with a millisecond timestamp.
+macro_rules! log {
+    ($($arg:tt)*) => {{
+        let _ = $crate::log_line(&format!($($arg)*));
+    }};
+}
+
+pub fn log_line(msg: &str) -> std::io::Result<()> {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/demucs-tui.log")?;
+    writeln!(f, "[{}] {}", ts, msg)
+}
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
@@ -54,6 +76,9 @@ struct App {
     search_query: String,
     search_matches: Vec<usize>,
     search_idx: usize,
+    _config_file: Option<tempfile::NamedTempFile>,
+    worker_stderr_lines: Vec<String>,
+    worker_last_msg_time: std::time::Instant,
 }
 
 impl App {
@@ -91,6 +116,9 @@ impl App {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_idx: 0,
+            _config_file: None,
+            worker_stderr_lines: Vec::new(),
+            worker_last_msg_time: std::time::Instant::now(),
         }
     }
 
@@ -106,7 +134,7 @@ impl App {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const AUDIO_EXTS: &[&str] = &["mp3", "wav", "flac", "ogg", "m4a", "aac", "wma"];
+const AUDIO_EXTS: &[&str] = &["mp3", "wav", "flac", "ogg", "opus", "m4a", "aac", "wma"];
 
 fn is_audio(path: &Path) -> bool {
     path.extension()
@@ -169,13 +197,7 @@ fn dirs_audio_or_home() -> PathBuf {
     if cwd.join("demucs").is_dir() || cwd.join("separated").is_dir() {
         return cwd;
     }
-    let candidates = [
-        "/mnt/Storages/Audio",
-        "~/Music",
-        "~/music",
-        "~/Downloads",
-        ".",
-    ];
+    let candidates = ["~/Music", "~/music", "~/Downloads", "."];
     for dir in &candidates {
         let p = PathBuf::from(shellexpand::tilde(dir).as_ref());
         if p.is_dir() {
@@ -186,52 +208,178 @@ fn dirs_audio_or_home() -> PathBuf {
 }
 
 fn find_repo_dir() -> PathBuf {
+    log!("find_repo_dir: start | cwd={:?}", std::env::current_dir());
+
+    // 1. Environment variable override (set by run.sh, justfile, or user)
+    if let Ok(dir) = std::env::var("DEMUCS_REPO_DIR") {
+        log!("find_repo_dir: step1 DEMUCS_REPO_DIR={:?}", dir);
+        let p = PathBuf::from(dir);
+        if p.join("demucs").is_dir() {
+            log!("find_repo_dir: step1 FOUND at {:?}", p);
+            return p;
+        }
+        log!(
+            "find_repo_dir: step1 {:?} has no demucs/ subdir, continuing",
+            p
+        );
+    } else {
+        log!("find_repo_dir: step1 DEMUCS_REPO_DIR not set");
+    }
+
+    // 2. Detect from executable path
     let exe = std::env::current_exe().ok();
     if let Some(exe) = exe {
-        let mut p = exe.parent().unwrap().to_path_buf();
-        // If running from target/debug or target/release
+        log!("find_repo_dir: step2 exe={:?}", exe);
+        let p = exe.parent().unwrap().to_path_buf();
+        log!("find_repo_dir: step2 exe parent={:?}", p);
+        // Running from target/debug or target/release (cargo build in-repo)
         if p.ends_with("debug") || p.ends_with("release") {
-            p = p.parent().unwrap().parent().unwrap().to_path_buf();
-        }
-        // Check if demucs dir exists at repo root
-        if p.join("demucs").is_dir() {
-            return p;
-        }
-        // Check parent
-        if let Some(parent) = p.parent() {
-            if parent.join("demucs").is_dir() {
-                return parent.to_path_buf();
+            let inner = p.parent().unwrap().parent().unwrap().to_path_buf();
+            log!("find_repo_dir: step2 inner (target/../..)={:?}", inner);
+            if inner.join("demucs").is_dir() {
+                log!("find_repo_dir: step2 FOUND at {:?}", inner);
+                return inner;
             }
+            if let Some(parent) = inner.parent() {
+                log!("find_repo_dir: step2 inner parent={:?}", parent);
+                if parent.join("demucs").is_dir() {
+                    log!("find_repo_dir: step2 FOUND at parent {:?}", parent);
+                    return parent.to_path_buf();
+                }
+            }
+        } else {
+            log!("find_repo_dir: step2 not in debug/release dir, skip exe detect");
         }
+    } else {
+        log!("find_repo_dir: step2 current_exe() returned None");
     }
-    // Fallback: walk up from cwd
-    let mut p = std::env::current_dir().unwrap_or_default();
+
+    // 3. Walk up from current working directory
+    let mut cwd = std::env::current_dir().unwrap_or_default();
+    log!("find_repo_dir: step3 walking up from {:?}", cwd);
     loop {
-        if p.join("demucs").is_dir() {
-            return p;
+        if cwd.join("demucs").is_dir() {
+            log!("find_repo_dir: step3 FOUND at {:?}", cwd);
+            return cwd;
         }
-        if !p.pop() {
+        if !cwd.pop() {
+            log!("find_repo_dir: step3 reached filesystem root, not found");
             break;
         }
     }
+
+    // 4. Check ~/.demucs_repo config file
+    if let Ok(home) = std::env::var("HOME") {
+        let cfg = PathBuf::from(&home).join(".demucs_repo");
+        log!("find_repo_dir: step4 checking config file {:?}", cfg);
+        if let Ok(dir) = std::fs::read_to_string(&cfg) {
+            let trimmed = dir.trim().to_string();
+            log!("find_repo_dir: step4 config file contains {:?}", trimmed);
+            let p = PathBuf::from(&trimmed);
+            if p.join("demucs").is_dir() {
+                log!("find_repo_dir: step4 FOUND at {:?}", p);
+                return p;
+            }
+            log!(
+                "find_repo_dir: step4 config path {:?} has no demucs/, ignoring",
+                p
+            );
+        } else {
+            log!("find_repo_dir: step4 config file not found or unreadable");
+        }
+    }
+
+    // 5. Walk up from home directory
+    if let Ok(home) = std::env::var("HOME") {
+        let mut p = PathBuf::from(&home);
+        log!("find_repo_dir: step5 walking up from home {:?}", p);
+        loop {
+            if p.join("demucs").is_dir() {
+                log!("find_repo_dir: step5 FOUND at {:?}", p);
+                return p;
+            }
+            if !p.pop() {
+                log!("find_repo_dir: step5 home walk reached root, not found");
+                break;
+            }
+        }
+    }
+
+    log!("find_repo_dir: ALL STEPS FAILED — returning \".\"");
     PathBuf::from(".")
 }
 
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
 fn start_worker(app: &mut App, track: &Path) -> Result<()> {
+    log!("start_worker: ─── begin ───");
     let repo_dir = find_repo_dir();
-    let worker_py = repo_dir
-        .join("demucs-tui")
-        .join("worker")
-        .join("demucs_worker.py");
-    let venv_python = repo_dir.join("venv").join("bin").join("python3");
+    log!("start_worker: repo_dir={:?} | track={:?}", repo_dir, track);
+
+    // Log all env overrides so the user can see what's happening
+    log!(
+        "start_worker: env DEMUCS_REPO_DIR={:?}",
+        std::env::var("DEMUCS_REPO_DIR").ok()
+    );
+    log!(
+        "start_worker: env DEMUCS_PYTHON={:?}",
+        std::env::var("DEMUCS_PYTHON").ok()
+    );
+    log!(
+        "start_worker: env DEMUCS_WORKER_PATH={:?}",
+        std::env::var("DEMUCS_WORKER_PATH").ok()
+    );
+
+    // Paths can be overridden by env vars (most reliable for Nix / container deploys).
+    // When both are set, find_repo_dir() is effectively unused.
+    let worker_py = std::env::var("DEMUCS_WORKER_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            repo_dir
+                .join("demucs-tui")
+                .join("worker")
+                .join("demucs_worker.py")
+        });
+    let venv_python = std::env::var("DEMUCS_PYTHON")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| repo_dir.join("venv").join("bin").join("python3"));
+
+    log!(
+        "start_worker: resolved worker_py={:?} (exists={})",
+        worker_py,
+        worker_py.exists()
+    );
+    log!(
+        "start_worker: resolved venv_python={:?} (exists={})",
+        venv_python,
+        venv_python.exists()
+    );
 
     if !worker_py.exists() {
-        anyhow::bail!("Worker script not found at: {}", worker_py.display());
+        log!(
+            "start_worker: FAIL — worker_py not found at {:?}",
+            worker_py
+        );
+        anyhow::bail!(
+            "Worker script not found at: {}\n\
+             Set DEMUCS_REPO_DIR to the repo root or DEMUCS_WORKER_PATH to the worker script.\n\
+             Searched in: {}",
+            worker_py.display(),
+            repo_dir.display()
+        );
     }
     if !venv_python.exists() {
-        anyhow::bail!("Venv python not found at: {}", venv_python.display());
+        log!(
+            "start_worker: FAIL — venv_python not found at {:?}",
+            venv_python
+        );
+        anyhow::bail!(
+            "Python interpreter not found at: {}\n\
+             Set DEMUCS_REPO_DIR to the repo root, or DEMUCS_PYTHON to the interpreter path.\n\
+             Searched in: {}",
+            venv_python.display(),
+            repo_dir.display()
+        );
     }
 
     let output_dir = if app.output_dir.is_empty() {
@@ -254,38 +402,105 @@ fn start_worker(app: &mut App, track: &Path) -> Result<()> {
         "jobs": 0,
     });
 
-    let config_path = std::env::temp_dir().join("demucs_tui_config.json");
+    let config_file = tempfile::Builder::new()
+        .prefix("demucs_tui_config_")
+        .suffix(".json")
+        .tempfile()?;
+    let config_path = config_file.path().to_path_buf();
     std::fs::write(&config_path, serde_json::to_string_pretty(&cfg)?)?;
+    log!(
+        "start_worker: config written to {:?} | cfg={}",
+        config_path,
+        serde_json::to_string(&cfg).unwrap_or_default()
+    );
 
-    let mut child = Command::new(venv_python.to_string_lossy().as_ref())
+    log!(
+        "start_worker: spawning — cmd={:?} arg={:?} arg={:?}",
+        venv_python,
+        worker_py,
+        config_path
+    );
+
+    let mut child = match Command::new(venv_python.to_string_lossy().as_ref())
         .arg(worker_py.to_string_lossy().as_ref())
         .arg(&config_path)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            log!("start_worker: FAIL — spawn error: {}", e);
+            anyhow::bail!(
+                "Failed to start Python worker:\n  cmd: {} {}\n  error: {}\n\n\
+                 Ensure '{}' is a valid Python interpreter with demucs installed.\n\
+                 If using Nix, set DEMUCS_PYTHON to a Python with demucs in its path.",
+                venv_python.display(),
+                worker_py.display(),
+                e,
+                venv_python.display()
+            );
+        }
+    };
+
+    log!("start_worker: spawned pid={}", child.id());
 
     let stdout = child.stdout.take().unwrap();
-    let reader = BufReader::new(stdout);
+    let stderr = child.stderr.take().unwrap();
     let (tx, rx) = mpsc::channel();
 
+    // Thread: stdout JSON lines
+    let tx_out = tx.clone();
     std::thread::spawn(move || {
-        for line in reader.lines() {
+        for line in BufReader::new(stdout).lines() {
             match line {
                 Ok(l) => {
-                    if tx.send(l).is_err() {
+                    if tx_out.send(l).is_err() {
+                        log!("start_worker stdout thread: channel closed, stopping");
                         break;
                     }
                 }
-                Err(_) => break,
+                Err(e) => {
+                    log!("start_worker stdout thread: read error: {}", e);
+                    break;
+                }
             }
         }
+        log!("start_worker stdout thread: exiting");
+    });
+
+    // Thread: stderr lines → send as error-type messages
+    let tx_err = tx.clone();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            match line {
+                Ok(l) if !l.is_empty() => {
+                    log!("start_worker stderr: {}", l);
+                    let msg =
+                        serde_json::json!({"type": "error", "msg": format!("[stderr] {}", l)});
+                    if tx_err.send(msg.to_string()).is_err() {
+                        break;
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log!("start_worker stderr thread: read error: {}", e);
+                    break;
+                }
+            }
+        }
+        log!("start_worker stderr thread: exiting");
     });
 
     app.worker = Some(child);
+    log!("start_worker: done, screen -> Progress");
     app.worker_rx = Some(rx);
+    app._config_file = Some(config_file);
     app.progress_pct = 0.0;
     app.progress_msg = "Starting...".to_string();
     app.status_msg.clear();
+    app.worker_stderr_lines.clear();
+    app.worker_last_msg_time = std::time::Instant::now();
     Ok(())
 }
 
@@ -477,12 +692,16 @@ fn handle_settings(app: &mut App, key: KeyCode) {
         }
         KeyCode::Enter => {
             let track = PathBuf::from(&app.processed_track);
+            log!("handle_settings: Enter — track={:?} | model={} | shifts={} | two_stems={} | format={}",
+                track, app.models[app.selected_model], app.shifts, app.two_stems, app.formats[app.output_format]);
             if !track.exists() {
+                log!("handle_settings: track not found at {:?}", track);
                 app.status_msg = "Track file not found!".to_string();
                 return;
             }
             app.screen = Screen::Progress;
             if let Err(e) = start_worker(app, &track) {
+                log!("handle_settings: start_worker error: {}", e);
                 app.status_msg = format!("Error: {}", e);
                 app.screen = Screen::Settings;
             }
@@ -495,13 +714,16 @@ fn handle_settings(app: &mut App, key: KeyCode) {
 
 fn handle_progress(app: &mut App, key: KeyCode) {
     if matches!(key, KeyCode::Esc | KeyCode::Char('q')) {
+        log!("handle_progress: cancel requested (key={:?})", key);
         if let Some(ref mut child) = app.worker {
+            log!("handle_progress: killing worker pid={}", child.id());
             let _ = child.kill();
             let _ = child.wait();
         }
         app.worker = None;
         app.worker_rx = None;
         app.screen = Screen::Browser;
+        log!("handle_progress: cancelled, back to browser");
     }
 }
 
@@ -510,24 +732,27 @@ fn poll_worker(app: &mut App) {
         return;
     };
 
+    // Drain all pending messages
     loop {
         match rx.try_recv() {
             Ok(line) => {
+                app.worker_last_msg_time = std::time::Instant::now();
                 if let Ok(data) = serde_json::from_str::<serde_json::Value>(&line) {
                     let msg = data
                         .get("msg")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    app.progress_msg = msg;
 
                     match data["type"].as_str() {
                         Some("progress") => {
+                            app.progress_msg = msg;
                             if let Some(pct) = data["pct"].as_f64() {
                                 app.progress_pct = pct;
                             }
                         }
                         Some("done") => {
+                            log!("poll_worker: done received — {:?}", line);
                             app.output_files = data["files"]
                                 .as_array()
                                 .map(|a| {
@@ -542,25 +767,84 @@ fn poll_worker(app: &mut App) {
                             app.worker = None;
                             app.worker_rx = None;
                             app.screen = Screen::Results;
+                            log!("poll_worker: done processed, screen -> Results");
                             return;
                         }
                         Some("error") => {
-                            app.status_msg =
+                            let err_msg =
                                 data["msg"].as_str().unwrap_or("Unknown error").to_string();
-                            app.worker = None;
-                            app.worker_rx = None;
-                            app.screen = Screen::Settings;
-                            return;
+                            log!("poll_worker: error received — {:?}", err_msg);
+                            app.status_msg = err_msg.clone();
+                            app.worker_stderr_lines.push(err_msg);
+                            // Don't exit yet — let the dead-worker check below handle it
                         }
-                        _ => {}
+                        _ => {
+                            log!("poll_worker: unknown message type — {:?}", line);
+                        }
                     }
+                } else {
+                    log!("poll_worker: non-JSON line from worker — {:?}", line);
+                    // Store non-JSON output (likely Python traceback) for display
+                    app.worker_stderr_lines.push(line);
                 }
             }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
+                log!("poll_worker: channel disconnected");
                 app.worker = None;
                 app.worker_rx = None;
                 break;
+            }
+        }
+    }
+
+    // Check if the worker process has died (no messages for 30s and process gone)
+    let stale_secs = app.worker_last_msg_time.elapsed().as_secs();
+    if let Some(ref mut worker) = app.worker {
+        match worker.try_wait() {
+            Ok(Some(status)) => {
+                // Process exited
+                log!(
+                    "poll_worker: worker exited with status={} after {}s of no messages",
+                    status,
+                    stale_secs
+                );
+                let exit_msg = format!(
+                    "Worker process exited with code: {}",
+                    status.code().unwrap_or(-1)
+                );
+                if app.worker_stderr_lines.is_empty() {
+                    app.status_msg = exit_msg;
+                } else {
+                    // Show last few stderr lines
+                    let tail: Vec<_> = app.worker_stderr_lines.iter().rev().take(3).collect();
+                    app.status_msg = format!(
+                        "{}\n{}",
+                        exit_msg,
+                        tail.iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                }
+                log!("poll_worker: {}", app.status_msg);
+                app.worker = None;
+                app.worker_rx = None;
+                app.screen = Screen::Settings;
+                return;
+            }
+            Ok(None) => {
+                // Still running — check for stall
+                if stale_secs >= 30 && app.progress_msg == "Starting..." {
+                    log!(
+                        "poll_worker: worker alive but no messages for {}s — might be loading model",
+                        stale_secs
+                    );
+                    app.progress_msg = format!("Loading model... ({}s)", stale_secs);
+                }
+            }
+            Err(e) => {
+                log!("poll_worker: try_wait error: {}", e);
             }
         }
     }
@@ -863,6 +1147,7 @@ fn render_progress(f: &mut Frame, app: &App) {
             Constraint::Length(3),
             Constraint::Length(1),
             Constraint::Min(1),
+            Constraint::Length(3),
         ])
         .split(area);
 
@@ -887,13 +1172,27 @@ fn render_progress(f: &mut Frame, app: &App) {
         .label(label);
     f.render_widget(gauge, chunks[1]);
 
+    // Show last few stderr lines if any
+    if !app.worker_stderr_lines.is_empty() {
+        let tail: Vec<_> = app.worker_stderr_lines.iter().rev().take(3).collect();
+        let stderr_text: Vec<Line> = tail
+            .iter()
+            .map(|l| Line::from(Span::styled(l.as_str(), Style::default().fg(Color::Red))))
+            .collect();
+        f.render_widget(
+            Paragraph::new(stderr_text)
+                .block(Block::default().title(" Errors ").borders(Borders::ALL)),
+            chunks[3],
+        );
+    }
+
     let help = Line::from(vec![
         Span::styled(" Esc/q ", Style::default().fg(Color::DarkGray)),
         Span::raw(" cancel"),
     ]);
     f.render_widget(
         Paragraph::new(help).style(Style::default().fg(Color::DarkGray)),
-        chunks[3],
+        chunks[4],
     );
 }
 
@@ -997,6 +1296,19 @@ fn block_frame(f: &mut Frame, title: &str, _extra: Option<&str>) -> Rect {
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
+    // Log the startup banner
+    let pid = std::process::id();
+    let exe = std::env::current_exe().ok();
+    let cwd = std::env::current_dir().ok();
+    log!("=== demucs-tui start ===");
+    log!("main: pid={} | exe={:?} | cwd={:?}", pid, exe, cwd);
+    log!("main: args={:?}", std::env::args().collect::<Vec<_>>());
+    log!("main: HOME={:?}", std::env::var("HOME").ok());
+    log!(
+        "main: DEMUCS_REPO_DIR={:?}",
+        std::env::var("DEMUCS_REPO_DIR").ok()
+    );
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     stdout.execute(EnterAlternateScreen)?;
@@ -1010,7 +1322,9 @@ fn main() -> Result<()> {
     stdout.execute(LeaveAlternateScreen)?;
 
     if let Err(e) = &result {
+        log!("main: error — {}", e);
         eprintln!("Error: {}", e);
     }
+    log!("=== demucs-tui exit ===");
     result
 }

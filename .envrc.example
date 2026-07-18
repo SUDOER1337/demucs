@@ -1,7 +1,12 @@
-# Optional direnv setup for local development.
+# direnv setup for local development on NixOS.
 # To use:
 #   cp .envrc.example .envrc
 #   direnv allow
+#
+# If using `nix develop` instead of direnv, the ROCm env vars
+# and PATH are set automatically by the dev shell.
+
+use flake
 
 export HSA_OVERRIDE_GFX_VERSION=10.3.0
 export MIOPEN_LOG_LEVEL=0

@@ -18,6 +18,8 @@ repo root (demucs/)
 ├── demucs.sh            # Shell wrapper: exec venv/bin/python3 -m demucs "$@"
 ├── demucs-batch.sh      # Batch wrapper with --find mode
 ├── install.sh           # One-shot: venv + pip install -e ".[dev]" + ROCm torchaudio
+├── flake.nix            # Nix dev shell: Python 3.13, flake8, mypy, cargo, etc.
+├── flake.lock           # Pinned flake inputs (commit to repo)
 ├── test.mp3             # 20s test track used by CI & quick test
 ├── conf/                # Hydra configs (training)
 ├── docs/                # api.md, linux.md, mac.md, windows.md, training.md, etc.
@@ -33,6 +35,23 @@ repo root (demucs/)
 
 ## Setup (always from repo root)
 
+### NixOS (recommended)
+
+```bash
+# Enter dev shell (provides Python 3.13, flake8, mypy, cargo, ffmpeg)
+nix develop
+
+# Create venv and install deps
+make install-python
+
+# Or full install with ROCm torchaudio
+bash install.sh
+```
+
+The `flake.nix` provides a dev shell with Python 3.13, pip, flake8, mypy, yapf, cargo, rustfmt, clippy, just, and ffmpeg. ROCm env vars (`HSA_OVERRIDE_GFX_VERSION`, etc.) are set automatically.
+
+### Non-NixOS
+
 ```bash
 python3 -m venv venv --system-site-packages
 HSA_OVERRIDE_GFX_VERSION=10.3.0 ./venv/bin/pip install -e ".[dev]"
@@ -44,18 +63,18 @@ HSA_OVERRIDE_GFX_VERSION=10.3.0 ./venv/bin/pip install -e ".[dev]"
 
 ## Key commands
 
-| What | How |
-|---|---|
-| Run CLI separation | `./demucs.sh song.mp3` (sets ROCm env, uses venv) |
-| Run CLI separation (RAW) | `./venv/bin/python3 -m demucs -n htdemucs_ft song.mp3` |
-| List available models | `./venv/bin/python3 -m demucs --list-models` |
-| Use Python API | `./venv/bin/python3 -c "import demucs.api; s=demucs.api.Separator(); ..."` |
-| Build TUI | `cd demucs-tui && cargo build` |
-| Run TUI | `./demucs-tui/run.sh` (from repo root — sets `REPO_DIR` and execs debug binary) |
-| Lint | `make linter` → `flake8 demucs && mypy demucs` |
-| Eval tests | `make test_eval` (separates test.mp3 with various flags) |
-| Training test | `make test_train` (needs MUSDB dataset, see Makefile) |
-| Clean build artifacts | `make clean` |
+| What                     | How                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------- |
+| Run CLI separation       | `./demucs.sh song.mp3` (sets ROCm env, uses venv)                               |
+| Run CLI separation (RAW) | `./venv/bin/python3 -m demucs -n htdemucs_ft song.mp3`                          |
+| List available models    | `./venv/bin/python3 -m demucs --list-models`                                    |
+| Use Python API           | `./venv/bin/python3 -c "import demucs.api; s=demucs.api.Separator(); ..."`      |
+| Build TUI                | `cd demucs-tui && cargo build`                                                  |
+| Run TUI                  | `./demucs-tui/run.sh` (from repo root — sets `REPO_DIR` and execs debug binary) |
+| Lint                     | `make linter` → `flake8 demucs && mypy demucs`                                  |
+| Eval tests               | `make test_eval` (separates test.mp3 with various flags)                        |
+| Training test            | `make test_train` (needs MUSDB dataset, see Makefile)                           |
+| Clean build artifacts    | `make clean`                                                                    |
 
 **Architecture note:** The TUI binary (`demucs-tui/target/debug/demucs-tui`) finds the repo root by walking up from the binary's location or cwd looking for a `demucs/` directory. It then spawns `venv/bin/python3 demucs-tui/worker/demucs_worker.py` as a child process.
 

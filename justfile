@@ -2,7 +2,36 @@
 # Run `just --list` to see available recipes.
 
 # ─── Default ───────────────────────────────────────────────────────────────────
-default: linter tui-check
+default: install
+
+# ─── Install ───────────────────────────────────────────────────────────────────
+
+# Full install: venv + Python deps + build TUI + quick test
+install:
+    bash install.sh
+    just tui-build
+    echo "=== TUI binary ready at demucs-tui/target/debug/demucs-tui ==="
+
+# Full install without the quick separation test
+install-no-test:
+    SKIP_TEST=1 bash install.sh
+    just tui-build
+
+# Python-only: venv + pip install, skip ROCm torchaudio and test
+install-python:
+    bash install.sh --python-only
+
+# Install TUI binary to ~/.cargo/bin/ via cargo install
+install-tui:
+    cargo install --path demucs-tui
+    pwd > "$HOME/.demucs_repo"
+    echo "=== Installed ~/.cargo/bin/demucs-tui ==="
+    echo "=== Wrote repo root to ~/.demucs_repo ==="
+    echo "=== Run 'demucs-tui' from anywhere — it finds the venv via that file ==="
+
+# Full everything: venv + pip + ROCm torchaudio + cargo install + test
+install-full: install
+    just install-tui
 
 # ─── Python ────────────────────────────────────────────────────────────────────
 
@@ -47,17 +76,17 @@ tui-release:
 tui-check:
     cd demucs-tui && cargo clippy
 
-# Build + run the TUI from repo root
+# Build + run the TUI from repo root (exports DEMUCS_REPO_DIR so the binary can find the venv)
 tui-run: tui-build
-    ./demucs-tui/target/debug/demucs-tui
+    DEMUCS_REPO_DIR=. ./demucs-tui/target/debug/demucs-tui
+
+# Run the TUI via the shell wrapper (builds first, sets env automatically)
+tui-wrapper:
+    ./demucs-tui/run.sh
 
 # Run rustfmt on the TUI
 tui-format:
     cd demucs-tui && cargo fmt
-
-# Install the TUI binary to ~/.cargo/bin/ via cargo
-tui-install:
-    cargo install --path demucs-tui
 
 # ─── Cleanup ───────────────────────────────────────────────────────────────────
 

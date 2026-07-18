@@ -13,6 +13,7 @@ Classes
 Functions
 ---------
 `demucs.api.save_audio`: Save an audio
+`demucs.api.save_separated_stems`: Save separated stems to disk
 `demucs.api.list_models`: Get models list
 
 Examples
@@ -25,14 +26,13 @@ import subprocess
 import torch as th
 import torchaudio as ta
 
-from dora.log import fatal
 from pathlib import Path
 from typing import Optional, Callable, Dict, Tuple, Union
 
 from .apply import apply_model, _replace_dict
 from .audio import AudioFile, convert_audio, save_audio
-from .pretrained import get_model, _parse_remote_files, REMOTE_ROOT
-from .repo import RemoteRepo, LocalRepo, ModelOnlyRepo, BagOnlyRepo
+from .pretrained import get_model, build_repos
+from .repo import ModelLoadingError  # noqa: F401 — used in docstrings
 
 
 class LoadAudioError(Exception):
@@ -76,7 +76,7 @@ class Separator:
         segment: Length (in seconds) of each segment (only available if `split` is `True`). If \
             not specified, will use the command line option.
         shifts: If > 0, will shift in time `wav` by a random amount between 0 and 0.5 sec and \
-            apply the oppositve shift to the output. This is repeated `shifts` time and all \
+            apply the opposite shift to the output. This is repeated `shifts` time and all \
             predictions are averaged. This effectively makes the model time equivariant and \
             improves SDR by up to 0.2 points. If not specified, will use the command line option.
         split: If True, the input will be broken down into small chunks (length set by `segment`) \
@@ -117,9 +117,17 @@ class Separator:
         self._name = model
         self._repo = repo
         self._load_model()
-        self.update_parameter(device=device, shifts=shifts, overlap=overlap, split=split,
-                              segment=segment, jobs=jobs, progress=progress, callback=callback,
-                              callback_arg=callback_arg)
+        self.update_parameter(
+            device=device,
+            shifts=shifts,
+            overlap=overlap,
+            split=split,
+            segment=segment,
+            jobs=jobs,
+            progress=progress,
+            callback=callback,
+            callback_arg=callback_arg,
+        )
 
     def update_parameter(
         self,
@@ -130,9 +138,7 @@ class Separator:
         segment: Optional[Union[int, _NotProvided]] = NotProvided,
         jobs: Union[int, _NotProvided] = NotProvided,
         progress: Union[bool, _NotProvided] = NotProvided,
-        callback: Optional[
-            Union[Callable[[dict], None], _NotProvided]
-        ] = NotProvided,
+        callback: Optional[Union[Callable[[dict], None], _NotProvided]] = NotProvided,
         callback_arg: Optional[Union[dict, _NotProvided]] = NotProvided,
     ):
         """
@@ -143,7 +149,7 @@ class Separator:
         segment: Length (in seconds) of each segment (only available if `split` is `True`). If \
             not specified, will use the command line option.
         shifts: If > 0, will shift in time `wav` by a random amount between 0 and 0.5 sec and \
-            apply the oppositve shift to the output. This is repeated `shifts` time and all \
+            apply the opposite shift to the output. This is repeated `shifts` time and all \
             predictions are averaged. This effectively makes the model time equivariant and \
             improves SDR by up to 0.2 points. If not specified, will use the command line option.
         split: If True, the input will be broken down into small chunks (length set by `segment`) \
@@ -212,8 +218,9 @@ class Separator:
         wav = None
 
         try:
-            wav = AudioFile(track).read(streams=0, samplerate=self._samplerate,
-                                        channels=self._audio_channels)
+            wav = AudioFile(track).read(
+                streams=0, samplerate=self._samplerate, channels=self._audio_channels
+            )
         except FileNotFoundError:
             errors["ffmpeg"] = "FFmpeg is not installed."
         except subprocess.CalledProcessError:
@@ -268,20 +275,20 @@ class Separator:
         wav -= ref.mean()
         wav /= ref.std() + 1e-8
         out = apply_model(
-                self._model,
-                wav[None],
-                segment=self._segment,
-                shifts=self._shifts,
-                split=self._split,
-                overlap=self._overlap,
-                device=self._device,
-                num_workers=self._jobs,
-                callback=self._callback,
-                callback_arg=_replace_dict(
-                    self._callback_arg, ("audio_length", wav.shape[1])
-                ),
-                progress=self._progress,
-            )
+            self._model,
+            wav[None],
+            segment=self._segment,
+            shifts=self._shifts,
+            split=self._split,
+            overlap=self._overlap,
+            device=self._device,
+            num_workers=self._jobs,
+            callback=self._callback,
+            callback_arg=_replace_dict(
+                self._callback_arg, ("audio_length", wav.shape[1])
+            ),
+            progress=self._progress,
+        )
         if out is None:
             raise KeyboardInterrupt
         out *= ref.std() + 1e-8
@@ -320,35 +327,127 @@ class Separator:
 
 
 def list_models(repo: Optional[Path] = None) -> Dict[str, Dict[str, Union[str, Path]]]:
-    """
-    List the available models. Please remember that not all the returned models can be
-    successfully loaded.
+    """List the available models from a repo.
 
     Parameters
     ----------
-    repo: The repo whose models are to be listed.
+    repo: The repo whose models are to be listed. None for the remote default repo.
 
     Returns
     -------
     A dict with two keys ("single" for single models and "bag" for bag of models). The values are
-    lists whose components are strs.
+    dicts mapping model names to their paths or URLs.
+
+    Raises
+    ------
+    ModelLoadingError: If the repo path is invalid.
     """
-    model_repo: ModelOnlyRepo
-    if repo is None:
-        models = _parse_remote_files(REMOTE_ROOT / 'files.txt')
-        model_repo = RemoteRepo(models)
-        bag_repo = BagOnlyRepo(REMOTE_ROOT, model_repo)
-    else:
-        if not repo.is_dir():
-            fatal(f"{repo} must exist and be a directory.")
-        model_repo = LocalRepo(repo)
-        bag_repo = BagOnlyRepo(repo, model_repo)
+    model_repo, bag_repo = build_repos(repo)
     return {"single": model_repo.list_model(), "bag": bag_repo.list_model()}
+
+
+def save_separated_stems(
+    sources: Dict[str, "th.Tensor"],
+    output_dir: Path,
+    track_name: str,
+    samplerate: int,
+    ext: str = "wav",
+    two_stems: Optional[str] = None,
+    two_stems_method: str = "add",
+    origin: Optional["th.Tensor"] = None,
+    bitrate: int = 320,
+    clip: str = "rescale",
+    as_float: bool = False,
+    bits_per_sample: int = 16,
+    preset: int = 2,
+    filename_template: str = "{track}/{stem}.{ext}",
+) -> list:
+    """Save separated stems to disk, handling two-stems mode.
+
+    This is the shared stem-saving logic used by the CLI, the API __main__,
+    and the TUI worker.
+
+    Args:
+        sources: Dict mapping stem names to audio tensors.
+        output_dir: Root output directory (model subdirectory).
+        track_name: Name of the track (without extension).
+        samplerate: Audio sample rate.
+        ext: Output file extension (wav, flac, mp3).
+        two_stems: If set, only save this stem + the complement.
+        two_stems_method: How to produce the complement: "add" (sum others),
+            "minus" (origin - stem), or "none" (skip complement).
+        origin: Original mix tensor, required when two_stems_method is "minus".
+        bitrate: MP3 bitrate.
+        clip: Clipping strategy.
+        as_float: Save as float32.
+        bits_per_sample: Bit depth for wav/flac.
+        preset: MP3 encoder preset.
+        filename_template: Output filename template with {track}, {stem}, {ext}.
+
+    Returns:
+        List of saved file paths as strings.
+    """
+    saved = []
+    save_kwargs = {
+        "samplerate": samplerate,
+        "bitrate": bitrate,
+        "clip": clip,
+        "as_float": as_float,
+        "bits_per_sample": bits_per_sample,
+        "preset": preset,
+    }
+
+    if two_stems:
+        if two_stems not in sources:
+            raise ValueError(
+                f"Stem '{two_stems}' not in model sources: {list(sources.keys())}"
+            )
+        # Save the selected stem
+        stem_path = output_dir / filename_template.format(
+            track=track_name, stem=two_stems, ext=ext
+        )
+        stem_path.parent.mkdir(parents=True, exist_ok=True)
+        save_audio(sources[two_stems], str(stem_path), **save_kwargs)
+        saved.append(str(stem_path))
+
+        if two_stems_method == "minus":
+            if origin is None:
+                raise ValueError(
+                    "origin tensor is required for two_stems_method='minus'"
+                )
+            complement = origin - sources[two_stems]
+            comp_path = output_dir / filename_template.format(
+                track=track_name, stem=f"minus_{two_stems}", ext=ext
+            )
+            comp_path.parent.mkdir(parents=True, exist_ok=True)
+            save_audio(complement, str(comp_path), **save_kwargs)
+            saved.append(str(comp_path))
+        elif two_stems_method == "add":
+            complement = th.zeros_like(next(iter(sources.values())))
+            for name, source in sources.items():
+                if name != two_stems:
+                    complement += source
+            comp_path = output_dir / filename_template.format(
+                track=track_name, stem=f"no_{two_stems}", ext=ext
+            )
+            comp_path.parent.mkdir(parents=True, exist_ok=True)
+            save_audio(complement, str(comp_path), **save_kwargs)
+            saved.append(str(comp_path))
+        # two_stems_method == "none" → skip complement
+    else:
+        for stem_name, source in sources.items():
+            stem_path = output_dir / filename_template.format(
+                track=track_name, stem=stem_name, ext=ext
+            )
+            stem_path.parent.mkdir(parents=True, exist_ok=True)
+            save_audio(source, str(stem_path), **save_kwargs)
+            saved.append(str(stem_path))
+
+    return saved
 
 
 if __name__ == "__main__":
     # Test API functions
-    # two-stem not supported
 
     from .separate import get_parser
 
@@ -362,31 +461,24 @@ if __name__ == "__main__":
         split=args.split,
         segment=args.segment,
         jobs=args.jobs,
-        callback=print
+        callback=print,
     )
     out = args.out / args.name
     out.mkdir(parents=True, exist_ok=True)
+    ext = "mp3" if args.mp3 else ("flac" if args.flac else "wav")
     for file in args.tracks:
+        track_name = Path(file).name.rsplit(".", 1)[0]
         separated = separator.separate_audio_file(file)[1]
-        if args.mp3:
-            ext = "mp3"
-        elif args.flac:
-            ext = "flac"
-        else:
-            ext = "wav"
-        kwargs = {
-            "samplerate": separator.samplerate,
-            "bitrate": args.mp3_bitrate,
-            "clip": args.clip_mode,
-            "as_float": args.float32,
-            "bits_per_sample": 24 if args.int24 else 16,
-        }
-        for stem, source in separated.items():
-            stem = out / args.filename.format(
-                track=Path(file).name.rsplit(".", 1)[0],
-                trackext=Path(file).name.rsplit(".", 1)[-1],
-                stem=stem,
-                ext=ext,
-            )
-            stem.parent.mkdir(parents=True, exist_ok=True)
-            save_audio(source, str(stem), **kwargs)
+        save_separated_stems(
+            sources=separated,
+            output_dir=out,
+            track_name=track_name,
+            samplerate=separator.samplerate,
+            ext=ext,
+            bitrate=args.mp3_bitrate,
+            clip=args.clip_mode,
+            as_float=args.float32,
+            bits_per_sample=24 if args.int24 else 16,
+            preset=args.mp3_preset,
+            filename_template=args.filename,
+        )
