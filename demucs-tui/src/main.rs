@@ -76,6 +76,8 @@ struct App {
     search_query: String,
     search_matches: Vec<usize>,
     search_idx: usize,
+    selected_device: usize,
+    devices: Vec<&'static str>,
     _config_file: Option<tempfile::NamedTempFile>,
     worker_stderr_lines: Vec<String>,
     worker_last_msg_time: std::time::Instant,
@@ -116,6 +118,8 @@ impl App {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_idx: 0,
+            selected_device: 0,
+            devices: vec!["auto", "cuda", "cpu"],
             _config_file: None,
             worker_stderr_lines: Vec::new(),
             worker_last_msg_time: std::time::Instant::now(),
@@ -400,6 +404,7 @@ fn start_worker(app: &mut App, track: &Path) -> Result<()> {
         "bits_per_sample": 16,
         "as_float": false,
         "jobs": 0,
+        "device": app.devices[app.selected_device],
     });
 
     let config_file = tempfile::Builder::new()
@@ -683,6 +688,9 @@ fn handle_settings(app: &mut App, key: KeyCode) {
         }
         KeyCode::Char('f') => {
             app.output_format = (app.output_format + 1) % app.formats.len();
+        }
+        KeyCode::Char('d') => {
+            app.selected_device = (app.selected_device + 1) % app.devices.len();
         }
         KeyCode::Char('[') => {
             app.shifts = app.shifts.saturating_sub(1).max(1);
@@ -1024,6 +1032,7 @@ fn render_settings(f: &mut Frame, app: &App) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Min(1),
         ])
         .split(area);
@@ -1099,18 +1108,25 @@ fn render_settings(f: &mut Frame, app: &App) {
         chunks[3],
     );
 
+    // Device
+    let dev_text = format!(" Device: {}  (d: cycle)", app.devices[app.selected_device]);
+    f.render_widget(
+        Paragraph::new(dev_text).block(Block::default().title(" Compute ").borders(Borders::ALL)),
+        chunks[4],
+    );
+
     // Shifts
     let shift_text = format!(" Shifts: {}  ([ decrease, ] increase)", app.shifts);
     f.render_widget(
         Paragraph::new(shift_text).block(Block::default().title(" Quality ").borders(Borders::ALL)),
-        chunks[4],
+        chunks[5],
     );
 
     // Status
     if !app.status_msg.is_empty() {
         f.render_widget(
             Paragraph::new(app.status_msg.clone()).style(Style::default().fg(Color::Red)),
-            chunks[5],
+            chunks[6],
         );
     }
 
@@ -1122,6 +1138,8 @@ fn render_settings(f: &mut Frame, app: &App) {
         Span::raw(" stems  "),
         Span::styled("f", Style::default().fg(Color::DarkGray)),
         Span::raw(" format  "),
+        Span::styled("d", Style::default().fg(Color::DarkGray)),
+        Span::raw(" device  "),
         Span::styled("[", Style::default().fg(Color::DarkGray)),
         Span::raw("/"),
         Span::styled("]", Style::default().fg(Color::DarkGray)),
@@ -1133,7 +1151,7 @@ fn render_settings(f: &mut Frame, app: &App) {
     ]);
     f.render_widget(
         Paragraph::new(help).style(Style::default().fg(Color::DarkGray)),
-        chunks[5],
+        chunks[6],
     );
 }
 

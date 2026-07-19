@@ -66,7 +66,18 @@ def main():
 
     track = cfg["track"]
     model_name = cfg.get("model", "htdemucs")
-    device = cfg.get("device", "cuda")
+    device = cfg.get("device", "auto")
+    if device == "auto":
+        try:
+            import torch
+
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            _worker_log(
+                f"auto-detect: torch.cuda.is_available()={torch.cuda.is_available()}, device={device}"
+            )
+        except ImportError:
+            device = "cpu"
+            _worker_log("auto-detect: torch not available, falling back to cpu")
     shifts = cfg.get("shifts", 1)
     overlap = cfg.get("overlap", 0.25)
     segment = cfg.get("segment")
